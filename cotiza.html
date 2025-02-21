@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generador de Cotizaciones</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" integrity="sha512-GsLlZN/3F2ErC5ifS5QtgpiJtWd43JWSuIgh7mbzZ8zBps+dvLusV+eNQATqgA/HdeKFVgA5v3S/cIrLF7QnIg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #f3f4f6;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+        #quotationForm {
+            max-width: 900px;
+            margin: 2rem auto;
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        .line-item {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            align-items: center;
+        }
+        .printable {
+            display: none;
+        }
+        @media print {
+            .no-print { display: none; }
+            .printable { display: block; }
+            #quotationForm { box-shadow: none; border: 1px solid #e5e7eb; }
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4">
+    <div id="quotationForm" class="space-y-6">
+        <h1 class="text-3xl font-bold text-gray-800">Generador de Cotizaciones</h1>
+        <p class="text-gray-600">Crea cotizaciones profesionales en minutos.</p>
+
+        <!-- Datos del Cliente -->
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Nombre del Cliente</label>
+                <input id="clientName" type="text" class="w-full p-2 mt-1 border rounded-lg" placeholder="Ej. Juan Pérez">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Fecha</label>
+                <input id="date" type="date" class="w-full p-2 mt-1 border rounded-lg">
+            </div>
+        </div>
+
+        <!-- Líneas de Productos/Servicios -->
+        <div id="lineItems" class="space-y-4">
+            <h2 class="text-xl font-semibold text-gray-800">Productos o Servicios</h2>
+            <div id="itemsContainer"></div>
+            <button id="addLineBtn" class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg transition duration-300">+ Agregar Línea</button>
+        </div>
+
+        <!-- Totales -->
+        <div class="space-y-2">
+            <div class="flex justify-between text-gray-700">
+                <span>Subtotal:</span>
+                <span id="subtotal">$0.00</span>
+            </div>
+            <div class="flex justify-between text-gray-700">
+                <span>IVA (16%):</span>
+                <span id="tax">$0.00</span>
+            </div>
+            <div class="flex justify-between text-lg font-bold text-gray-800">
+                <span>Total:</span>
+                <span id="total">$0.00</span>
+            </div>
+        </div>
+
+        <!-- Notas -->
+        <div>
+            <label class="block text-sm font-medium text-gray-700">Notas o Condiciones</label>
+            <textarea id="notes" class="w-full p-2 mt-1 border rounded-lg" rows="3" placeholder="Ej. Pago en 30 días..."></textarea>
+        </div>
+
+        <!-- Botones -->
+        <div class="flex gap-4 no-print">
+            <button id="generatePdfBtn" class="bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-lg transition duration-300">Generar PDF</button>
+            <button onclick="window.print()" class="bg-gray-600 hover:bg-gray-500 text-white py-2 px-4 rounded-lg transition duration-300">Imprimir</button>
+        </div>
+    </div>
+
+    <!-- Plantilla para Impresión -->
+    <div id="printTemplate" class="printable p-6 bg-white max-w-[210mm] mx-auto my-4 border">
+        <h1 class="text-2xl font-bold text-gray-800">Cotización</h1>
+        <div class="mt-4">
+            <p><strong>Cliente:</strong> <span id="printClientName"></span></p>
+            <p><strong>Fecha:</strong> <span id="printDate"></span></p>
+        </div>
+        <table class="w-full mt-6 border-collapse">
+            <thead>
+                <tr class="bg-gray-100">
+                    <th class="p-2 text-left border">Descripción</th>
+                    <th class="p-2 text-right border">Cantidad</th>
+                    <th class="p-2 text-right border">Precio Unitario</th>
+                    <th class="p-2 text-right border">Subtotal</th>
+                </tr>
+            </thead>
+            <tbody id="printItems"></tbody>
+        </table>
+        <div class="mt-4">
+            <p class="flex justify-between"><strong>Subtotal:</strong> <span id="printSubtotal"></span></p>
+            <p class="flex justify-between"><strong>IVA (16%):</strong> <span id="printTax"></span></p>
+            <p class="flex justify-between text-lg font-bold"><strong>Total:</strong> <span id="printTotal"></span></p>
+        </div>
+        <div class="mt-4">
+            <p><strong>Notas:</strong></p>
+            <p id="printNotes" class="text-sm text-gray-600"></p>
+        </div>
+    </div>
+
+    <script>
+        const TAX_RATE = 0.16; // 16% IVA
+        let items = [];
+
+        // DOM Elements
+        const itemsContainer = document.getElementById('itemsContainer');
+        const addLineBtn = document.getElementById('addLineBtn');
+        const subtotalEl = document.getElementById('subtotal');
+        const taxEl = document.getElementById('tax');
+        const totalEl = document.getElementById('total');
+        const generatePdfBtn = document.getElementById('generatePdfBtn');
+
+        // Agregar una nueva línea
+        function addLineItem(item = { description: '', quantity: 1, price: 0, tax: false }) {
+            const index = items.length;
+            items.push(item);
+
+            const div = document.createElement('div');
+            div.className = 'line-item';
+            div.innerHTML = `
+                <input type="text" class="p-2 border rounded-lg" placeholder="Producto/Servicio" value="${item.description}">
+                <input type="number" class="p-2 border rounded-lg text-right" placeholder="1" min="1" value="${item.quantity}">
+                <input type="number" class="p-2 border rounded-lg text-right" placeholder="0.00" min="0" step="0.01" value="${item.price}">
+                <label class="flex items-center"><input type="checkbox" class="mr-2" ${item.tax ? 'checked' : ''}> IVA</label>
+                <button class="bg-red-600 hover:bg-red-700 text-white py-1 px-2 rounded-lg">✕</button>
+            `;
+            itemsContainer.appendChild(div);
+
+            // Event Listeners
+            const inputs = div.querySelectorAll('input');
+            inputs[0].addEventListener('input', (e) => { items[index].description = e.target.value; calculateTotals(); });
+            inputs[1].addEventListener('input', (e) => { items[index].quantity = parseFloat(e.target.value) || 1; calculateTotals(); });
+            inputs[2].addEventListener('input', (e) => { items[index].price = parseFloat(e.target.value) || 0; calculateTotals(); });
+            inputs[3].addEventListener('change', (e) => { items[index].tax = e.target.checked; calculateTotals(); });
+            div.querySelector('button').addEventListener('click', () => {
+                items.splice(index, 1);
+                div.remove();
+                calculateTotals();
+            });
+
+            calculateTotals();
+        }
+
+        // Calcular Totales
+        function calculateTotals() {
+            let subtotal = 0;
+            let tax = 0;
+
+            items.forEach(item => {
+                const lineTotal = item.quantity * item.price;
+                subtotal += lineTotal;
+                if (item.tax) tax += lineTotal * TAX_RATE;
+            });
+
+            const total = subtotal + tax;
+            subtotalEl.textContent = `$${subtotal.toFixed(2)}`;
+            taxEl.textContent = `$${tax.toFixed(2)}`;
+            totalEl.textContent = `$${total.toFixed(2)}`;
+        }
+
+        // Generar PDF
+        function generatePdf() {
+            const clientName = document.getElementById('clientName').value;
+            const date = document.getElementById('date').value;
+            const notes = document.getElementById('notes').value;
+
+            // Crear un clon temporal del contenido para el PDF
+            const printClone = document.getElementById('printTemplate').cloneNode(true);
+            printClone.style.display = 'block'; // Hacerlo visible
+            printClone.style.position = 'absolute'; // Sacarlo de la vista
+            printClone.style.left = '-9999px';
+
+            // Llenar el clon con los datos
+            printClone.querySelector('#printClientName').textContent = clientName || 'Sin especificar';
+            printClone.querySelector('#printDate').textContent = date || new Date().toLocaleDateString('es-ES');
+            printClone.querySelector('#printNotes').textContent = notes || 'N/A';
+            printClone.querySelector('#printSubtotal').textContent = subtotalEl.textContent;
+            printClone.querySelector('#printTax').textContent = taxEl.textContent;
+            printClone.querySelector('#printTotal').textContent = totalEl.textContent;
+
+            const printItems = printClone.querySelector('#printItems');
+            printItems.innerHTML = '';
+            items.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="p-2 border">${item.description || 'Sin descripción'}</td>
+                    <td class="p-2 border text-right">${item.quantity}</td>
+                    <td class="p-2 border text-right">$${item.price.toFixed(2)}</td>
+                    <td class="p-2 border text-right">$${(item.quantity * item.price).toFixed(2)}</td>
+                `;
+                printItems.appendChild(tr);
+            });
+
+            // Agregar el clon al DOM
+            document.body.appendChild(printClone);
+
+            // Generar el PDF desde el clon
+            html2pdf()
+                .set({
+                    margin: 1,
+                    filename: `Cotización_${clientName || 'Cliente'}_${date || 'SinFecha'}.pdf`,
+                    html2canvas: { scale: 2 },
+                    jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
+                })
+                .from(printClone)
+                .save()
+                .then(() => {
+                    // Limpiar el clon después de generar el PDF
+                    document.body.removeChild(printClone);
+                });
+        }
+
+        // Event Listeners
+        addLineBtn.addEventListener('click', () => addLineItem());
+        generatePdfBtn.addEventListener('click', generatePdf);
+
+        // Initial Line
+        addLineItem();
+    </script>
+</body>
+</html>
